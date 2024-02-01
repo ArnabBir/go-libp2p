@@ -37,6 +37,7 @@ import (
 	"log"
 	mrand "math/rand"
 	"os"
+	"strings"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -60,6 +61,22 @@ func handleStream(s network.Stream) {
 	// stream 's' will stay open until you close it (or the other side closes it).
 }
 
+func printNodeAddresses(host host.Host) {
+	addressesString := make([]string, 0)
+	for _, address := range host.Addrs() {
+		addressesString = append(addressesString, address.String())
+	}
+
+
+	println(fmt.Sprintf("Multiaddresses: %s", strings.Join(addressesString, ", ")))
+}
+
+func getNodeAddress(host host.Host) string {
+	return host.Addrs()[1].String()
+
+}
+
+
 func readData(rw *bufio.ReadWriter) {
 	for {
 		str, _ := rw.ReadString('\n')
@@ -68,9 +85,10 @@ func readData(rw *bufio.ReadWriter) {
 			return
 		}
 		if str != "\n" {
-			// Green console colour: 	\x1b[32m
-			// Reset console colour: 	\x1b[0m
 			fmt.Printf("\x1b[32m%s\x1b[0m> ", str)
+			// Propagate the message to the next host in the chain
+			//rw.WriteString(fmt.Sprintf("%s\n", str))
+			//rw.Flush()
 		}
 
 	}
@@ -132,7 +150,7 @@ func main() {
 	if *dest == "" {
 		startPeer(ctx, h, handleStream)
 	} else {
-		rw, err := startPeerAndConnect(ctx, h, *dest)
+		rw, err := startPeerAndConnect(ctx, h, handleStream, *dest)
 		if err != nil {
 			log.Println(err)
 			return
@@ -157,7 +175,7 @@ func makeHost(port int, randomness io.Reader) (host.Host, error) {
 	}
 
 	// 0.0.0.0 will listen on any interface device.
-	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port))
+	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip6/::/tcp/%d", port))
 
 	// libp2p.New constructs a new libp2p Host.
 	// Other options can be added here.
@@ -172,33 +190,16 @@ func startPeer(ctx context.Context, h host.Host, streamHandler network.StreamHan
 	// This function is called when a peer connects, and starts a stream with this protocol.
 	// Only applies on the receiving side.
 	h.SetStreamHandler("/chat/1.0.0", streamHandler)
-
-	// Let's get the actual TCP port from our listen multiaddr, in case we're using 0 (default; random available port).
-	var port string
-	for _, la := range h.Network().ListenAddresses() {
-		if p, err := la.ValueForProtocol(multiaddr.P_TCP); err == nil {
-			port = p
-			break
-		}
-	}
-
-	if port == "" {
-		log.Println("was not able to find actual local port")
-		return
-	}
-
-	log.Printf("Run './chat -d /ip4/127.0.0.1/tcp/%v/p2p/%s' on another console.\n", port, h.ID())
-	log.Println("You can replace 127.0.0.1 with public IP as well.")
+	log.Printf("Run './chat -d %s/p2p/%s' on another console.\n", getNodeAddress(h), h.ID())
 	log.Println("Waiting for incoming connection")
 	log.Println()
 }
 
-func startPeerAndConnect(ctx context.Context, h host.Host, destination string) (*bufio.ReadWriter, error) {
+func startPeerAndConnect(ctx context.Context, h host.Host, streamHandler network.StreamHandler, destination string) (*bufio.ReadWriter, error) {
 	log.Println("This node's multiaddresses:")
 	for _, la := range h.Addrs() {
 		log.Printf(" - %v\n", la)
 	}
-	log.Println()
 
 	// Turn the destination into a multiaddr.
 	maddr, err := multiaddr.NewMultiaddr(destination)
@@ -229,6 +230,11 @@ func startPeerAndConnect(ctx context.Context, h host.Host, destination string) (
 
 	// Create a buffered stream so that read and writes are non-blocking.
 	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
+
+	log.Printf("Run './chat -d %s/p2p/%s' on another console.\n", getNodeAddress(h), h.ID())
+	h.SetStreamHandler("/chat/1.0.0", streamHandler)
+	log.Println("Waiting for incoming connection")
+	log.Println()
 
 	return rw, nil
 }
