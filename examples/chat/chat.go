@@ -72,10 +72,12 @@ func printNodeAddresses(host host.Host) {
 }
 
 func getNodeAddress(host host.Host) string {
-	return host.Addrs()[1].String()
-
+	addrs := host.Addrs()
+	if len(addrs) > 1 {
+		return addrs[1].String()
+	}
+	return "::"
 }
-
 
 func readData(rw *bufio.ReadWriter) {
 	for {
